@@ -434,7 +434,8 @@ class NeoViBus(BusABC):
                 flag3 |= ics.SPY_STATUS3_CANFD_ESI
 
         message.ArbIDOrHeader = msg.arbitration_id
-        msg_data = msg.data
+        max_len = 64 if msg.is_fd else 8
+        msg_data = msg.data[:max_len]
         message.NumberBytesData = len(msg_data)
         message.Data = tuple(msg_data[:8])
         if msg.is_fd and len(msg_data) > 8:
