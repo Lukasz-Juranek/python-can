@@ -6,12 +6,11 @@ This module contains the implementation of :class:`can.Message`.
     starting with Python 3.7.
 """
 
+from copy import deepcopy
+from math import isinf, isnan
 from typing import Optional
 
 from . import typechecking
-
-from copy import deepcopy
-from math import isinf, isnan
 
 
 class Message:  # pylint: disable=too-many-instance-attributes; OK for a dataclass
@@ -29,7 +28,7 @@ class Message:  # pylint: disable=too-many-instance-attributes; OK for a datacla
     :func:`~copy.copy`/:func:`~copy.deepcopy` is supported as well.
 
     Messages do not support "dynamic" attributes, meaning any others than the
-    documented ones, since it uses :attr:`~object.__slots__`.
+    documented ones, since it uses :obj:`~object.__slots__`.
     """
 
     __slots__ = (
@@ -111,10 +110,10 @@ class Message:  # pylint: disable=too-many-instance-attributes; OK for a datacla
     def __str__(self) -> str:
         field_strings = [f"Timestamp: {self.timestamp:>15.6f}"]
         if self.is_extended_id:
-            arbitration_id_string = f"ID: {self.arbitration_id:08x}"
+            arbitration_id_string = f"{self.arbitration_id:08x}"
         else:
-            arbitration_id_string = f"ID: {self.arbitration_id:04x}"
-        field_strings.append(arbitration_id_string.rjust(12, " "))
+            arbitration_id_string = f"{self.arbitration_id:03x}"
+        field_strings.append(f"ID: {arbitration_id_string:>8}")
 
         flag_string = " ".join(
             [
@@ -130,7 +129,7 @@ class Message:  # pylint: disable=too-many-instance-attributes; OK for a datacla
 
         field_strings.append(flag_string)
 
-        field_strings.append("DLC: {self.dlc:2d}")
+        field_strings.append(f"DL: {self.dlc:2d}")
         data_strings = []
         if self.data is not None:
             for index in range(0, min(self.dlc, len(self.data))):
@@ -228,9 +227,7 @@ class Message:  # pylint: disable=too-many-instance-attributes; OK for a datacla
             error_state_indicator=self.error_state_indicator,
         )
 
-    def _check(
-        self,
-    ) -> None:  # pylint: disable=too-many-branches; it's still simple code
+    def _check(self) -> None:
         """Checks if the message parameters are valid.
 
         Assumes that the attribute types are already correct.
@@ -294,6 +291,7 @@ class Message:  # pylint: disable=too-many-instance-attributes; OK for a datacla
         self,
         other: "Message",
         timestamp_delta: Optional[float] = 1.0e-6,
+        check_channel: bool = True,
         check_direction: bool = True,
     ) -> bool:
         """
@@ -302,6 +300,7 @@ class Message:  # pylint: disable=too-many-instance-attributes; OK for a datacla
         :param other: the message to compare with
         :param timestamp_delta: the maximum difference in seconds at which two timestamps are
                                 still considered equal or `None` to not compare timestamps
+        :param check_channel: whether to compare the message channel
         :param check_direction: whether to compare the messages' directions (Tx/Rx)
 
         :return: True if and only if the given message equals this one
@@ -325,7 +324,7 @@ class Message:  # pylint: disable=too-many-instance-attributes; OK for a datacla
                 and self.data == other.data
                 and self.is_remote_frame == other.is_remote_frame
                 and self.is_error_frame == other.is_error_frame
-                and self.channel == other.channel
+                and (self.channel == other.channel or not check_channel)
                 and self.is_fd == other.is_fd
                 and self.bitrate_switch == other.bitrate_switch
                 and self.error_state_indicator == other.error_state_indicator

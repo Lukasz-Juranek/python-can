@@ -2,29 +2,31 @@
 This module contains the implementation of :class:`~can.Notifier`.
 """
 
-from typing import Any, cast, Iterable, List, Optional, Union, Awaitable
+import asyncio
+import functools
+import logging
+import threading
+import time
+from typing import Awaitable, Callable, Iterable, List, Optional, Union, cast
 
 from can.bus import BusABC
 from can.listener import Listener
 from can.message import Message
 
-import threading
-import logging
-import time
-import asyncio
-
 logger = logging.getLogger("can.Notifier")
+
+MessageRecipient = Union[Listener, Callable[[Message], Union[Awaitable[None], None]]]
 
 
 class Notifier:
     def __init__(
         self,
         bus: Union[BusABC, List[BusABC]],
-        listeners: Iterable[Listener],
+        listeners: Iterable[MessageRecipient],
         timeout: float = 1.0,
         loop: Optional[asyncio.AbstractEventLoop] = None,
     ) -> None:
-        """Manages the distribution of :class:`can.Message` instances to listeners.
+        """Manages the distribution of :class:`~can.Message` instances to listeners.
 
         Supports multiple buses and listeners.
 
@@ -35,11 +37,13 @@ class Notifier:
 
 
         :param bus: A :ref:`bus` or a list of buses to listen to.
-        :param listeners: An iterable of :class:`~can.Listener`
-        :param timeout: An optional maximum number of seconds to wait for any message.
-        :param loop: An :mod:`asyncio` event loop to schedule listeners in.
+        :param listeners:
+            An iterable of :class:`~can.Listener` or callables that receive a :class:`~can.Message`
+            and return nothing.
+        :param timeout: An optional maximum number of seconds to wait for any :class:`~can.Message`.
+        :param loop: An :mod:`asyncio` event loop to schedule the ``listeners`` in.
         """
-        self.listeners: List[Listener] = list(listeners)
+        self.listeners: List[MessageRecipient] = list(listeners)
         self.bus = bus
         self.timeout = timeout
         self._loop = loop
@@ -105,40 +109,42 @@ class Notifier:
                 listener.stop()
 
     def _rx_thread(self, bus: BusABC) -> None:
-        msg = None
-        try:
-            while self._running:
-                if msg is not None:
+        # determine message handling callable early, not inside while loop
+        handle_message = cast(
+            Callable[[Message], None],
+            self._on_message_received
+            if self._loop is None
+            else functools.partial(
+                self._loop.call_soon_threadsafe, self._on_message_received
+            ),
+        )
+
+        while self._running:
+            try:
+                if msg := bus.recv(self.timeout):
                     with self._lock:
-                        if self._loop is not None:
-                            self._loop.call_soon_threadsafe(
-                                self._on_message_received, msg
-                            )
-                        else:
-                            self._on_message_received(msg)
-                msg = bus.recv(self.timeout)
-        except Exception as exc:  # pylint: disable=broad-except
-            self.exception = exc
-            if self._loop is not None:
-                self._loop.call_soon_threadsafe(self._on_error, exc)
-                # Raise anyways
-                raise
-            elif not self._on_error(exc):
-                # If it was not handled, raise the exception here
-                raise
-            else:
-                # It was handled, so only log it
-                logger.info("suppressed exception: %s", exc)
+                        handle_message(msg)
+            except Exception as exc:  # pylint: disable=broad-except
+                self.exception = exc
+                if self._loop is not None:
+                    self._loop.call_soon_threadsafe(self._on_error, exc)
+                    # Raise anyway
+                    raise
+                elif not self._on_error(exc):
+                    # If it was not handled, raise the exception here
+                    raise
+                else:
+                    # It was handled, so only log it
+                    logger.debug("suppressed exception: %s", exc)
 
     def _on_message_available(self, bus: BusABC) -> None:
-        msg = bus.recv(0)
-        if msg is not None:
+        if msg := bus.recv(0):
             self._on_message_received(msg)
 
     def _on_message_received(self, msg: Message) -> None:
         for callback in self.listeners:
-            res = cast(Union[None, Optional[Awaitable[Any]]], callback(msg))
-            if res is not None and self._loop is not None and asyncio.iscoroutine(res):
+            res = callback(msg)
+            if res and self._loop and asyncio.iscoroutine(res):
                 # Schedule coroutine
                 self._loop.create_task(res)
 
@@ -160,7 +166,7 @@ class Notifier:
 
         return was_handled
 
-    def add_listener(self, listener: Listener) -> None:
+    def add_listener(self, listener: MessageRecipient) -> None:
         """Add new Listener to the notification list.
         If it is already present, it will be called two times
         each time a message arrives.
@@ -169,7 +175,7 @@ class Notifier:
         """
         self.listeners.append(listener)
 
-    def remove_listener(self, listener: Listener) -> None:
+    def remove_listener(self, listener: MessageRecipient) -> None:
         """Remove a listener from the notification list. This method
         throws an exception if the given listener is not part of the
         stored listeners.

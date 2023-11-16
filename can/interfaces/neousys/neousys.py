@@ -14,34 +14,34 @@
 # pylint: disable=too-many-instance-attributes
 # pylint: disable=wrong-import-position
 
-import queue
 import logging
 import platform
-from time import time
-
+import queue
 from ctypes import (
-    byref,
     CFUNCTYPE,
+    POINTER,
+    Structure,
+    byref,
     c_ubyte,
     c_uint,
     c_ushort,
-    POINTER,
     sizeof,
-    Structure,
 )
+from time import time
 
 try:
     from ctypes import WinDLL
 except ImportError:
     from ctypes import CDLL
 
-from can import BusABC, Message
-from ...exceptions import (
+from can import (
+    BusABC,
     CanInitializationError,
-    CanOperationError,
     CanInterfaceNotImplementedError,
+    CanOperationError,
+    CanProtocol,
+    Message,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +131,7 @@ try:
         NEOUSYS_CANLIB = CDLL("libwdt_dio.so")
     logger.info("Loaded Neousys WDT_DIO Can driver")
 except OSError as error:
-    logger.info("Cannot load Neousys CAN bus dll or shared object: %d", format(error))
+    logger.info("Cannot load Neousys CAN bus dll or shared object: %s", error)
 
 
 class NeousysBus(BusABC):
@@ -151,6 +151,7 @@ class NeousysBus(BusABC):
         self.channel = channel
         self.device = device
         self.channel_info = f"Neousys Can: device {self.device}, channel {self.channel}"
+        self._can_protocol = CanProtocol.CAN_20
 
         self.queue = queue.Queue()
 

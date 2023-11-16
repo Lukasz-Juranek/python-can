@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 """
 Unittest for ixxat interface.
 
@@ -6,6 +8,7 @@ python setup.py test --addopts "--verbose -s test/test_interface_ixxat.py"
 """
 
 import unittest
+
 import can
 
 
@@ -26,13 +29,13 @@ class SoftwareTestCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             can.Bus(interface="ixxat", channel=-1)
 
-        # rxFifoSize must be > 0
+        # rx_fifo_size must be > 0
         with self.assertRaises(ValueError):
-            can.Bus(interface="ixxat", channel=0, rxFifoSize=0)
+            can.Bus(interface="ixxat", channel=0, rx_fifo_size=0)
 
-        # txFifoSize must be > 0
+        # tx_fifo_size must be > 0
         with self.assertRaises(ValueError):
-            can.Bus(interface="ixxat", channel=0, txFifoSize=0)
+            can.Bus(interface="ixxat", channel=0, tx_fifo_size=0)
 
 
 class HardwareTestCase(unittest.TestCase):
@@ -48,6 +51,18 @@ class HardwareTestCase(unittest.TestCase):
             raise unittest.SkipTest("not available on this platform")
 
     def test_bus_creation(self):
+        try:
+            configs = can.detect_available_configs("ixxat")
+            if configs:
+                for interface_kwargs in configs:
+                    bus = can.Bus(**interface_kwargs)
+                    bus.shutdown()
+            else:
+                raise unittest.SkipTest("No adapters were detected")
+        except can.CanInterfaceNotImplementedError:
+            raise unittest.SkipTest("not available on this platform")
+
+    def test_bus_creation_incorrect_channel(self):
         # non-existent channel -> use arbitrary high value
         with self.assertRaises(can.CanInitializationError):
             can.Bus(interface="ixxat", channel=0xFFFF)

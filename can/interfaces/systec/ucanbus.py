@@ -1,12 +1,19 @@
 import logging
 from threading import Event
 
-from can import BusABC, BusState, Message
-from ...exceptions import CanError, CanInitializationError, CanOperationError
+from can import (
+    BusABC,
+    BusState,
+    CanError,
+    CanInitializationError,
+    CanOperationError,
+    CanProtocol,
+    Message,
+)
 
 from .constants import *
-from .structures import *
 from .exceptions import UcanException
+from .structures import *
 from .ucan import UcanServer
 
 log = logging.getLogger("can.systec")
@@ -88,10 +95,10 @@ class UcanBus(BusABC):
         :raises ValueError:
             If invalid input parameter were passed.
 
-        :raises can.CanInterfaceNotImplementedError:
+        :raises ~can.exceptions.CanInterfaceNotImplementedError:
             If the platform is not supported.
 
-        :raises can.CanInitializationError:
+        :raises ~can.exceptions.CanInitializationError:
             If hardware or CAN interface initialization failed.
         """
         try:
@@ -104,6 +111,8 @@ class UcanBus(BusABC):
             ) from exception
 
         self.channel = int(channel)
+        self._can_protocol = CanProtocol.CAN_20
+
         device_number = int(kwargs.get("device_number", ANY_MODULE))
 
         # configuration options
@@ -134,7 +143,7 @@ class UcanBus(BusABC):
             self._ucan.init_hardware(device_number=device_number)
             self._ucan.init_can(self.channel, **self._params)
             hw_info_ex, _, _ = self._ucan.get_hardware_info()
-            self.channel_info = "%s, S/N %s, CH %s, BTR %s" % (
+            self.channel_info = "{}, S/N {}, CH {}, BTR {}".format(
                 self._ucan.get_product_code_message(hw_info_ex.product_code),
                 hw_info_ex.serial,
                 self.channel,
@@ -145,7 +154,11 @@ class UcanBus(BusABC):
 
         self._is_filtered = False
 
-        super().__init__(channel=channel, can_filters=can_filters, **kwargs)
+        super().__init__(
+            channel=channel,
+            can_filters=can_filters,
+            **kwargs,
+        )
 
     def _recv_internal(self, timeout):
         try:
@@ -181,7 +194,7 @@ class UcanBus(BusABC):
         :param float timeout:
             Transmit timeout in seconds (value 0 switches off the "auto delete")
 
-        :raises can.CanOperationError:
+        :raises ~can.exceptions.CanOperationError:
             If the message could not be sent.
         """
         try:
@@ -243,7 +256,7 @@ class UcanBus(BusABC):
         """
         Flushes the transmit buffer.
 
-        :raises can.CanError:
+        :raises ~can.exceptions.CanError:
             If flushing of the transmit buffer failed.
         """
         log.info("Flushing transmit buffer")

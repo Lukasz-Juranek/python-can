@@ -1,14 +1,12 @@
 import logging
 import sys
-
 from ctypes import byref
 from ctypes import c_wchar_p as LPWSTR
 
 from ...exceptions import CanInterfaceNotImplementedError
-
 from .constants import *
-from .structures import *
 from .exceptions import *
+from .structures import *
 
 log = logging.getLogger("can.systec")
 
@@ -120,7 +118,7 @@ else:
 
     try:
         # Select the proper dll architecture
-        lib = WinDLL("usbcan64.dll" if sys.maxsize > 2 ** 32 else "usbcan32.dll")
+        lib = WinDLL("usbcan64.dll" if sys.maxsize > 2**32 else "usbcan32.dll")
 
         # BOOL PUBLIC UcanSetDebugMode (DWORD dwDbgLevel_p, _TCHAR* pszFilePathName_p, DWORD dwFlags_p);
         UcanSetDebugMode = lib.UcanSetDebugMode
@@ -411,7 +409,7 @@ class UcanServer:
         Initializes the device with the corresponding serial or device number.
 
         :param int or None serial: Serial number of the USB-CANmodul.
-        :param int device_number: Device number (0 – 254, or :const:`ANY_MODULE` for the first device).
+        :param int device_number: Device number (0 - 254, or :const:`ANY_MODULE` for the first device).
         """
         if not self._hw_is_initialized:
             # initialize hardware either by device number or serial

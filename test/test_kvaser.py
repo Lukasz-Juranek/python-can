@@ -3,6 +3,7 @@
 """
 """
 
+import ctypes
 import time
 import unittest
 from unittest.mock import Mock
@@ -10,8 +11,7 @@ from unittest.mock import Mock
 import pytest
 
 import can
-from can.interfaces.kvaser import canlib
-from can.interfaces.kvaser import constants
+from can.interfaces.kvaser import canlib, constants
 
 
 class KvaserTest(unittest.TestCase):
@@ -21,6 +21,7 @@ class KvaserTest(unittest.TestCase):
         canlib.canIoCtl = Mock(return_value=0)
         canlib.canIoCtlInit = Mock(return_value=0)
         canlib.kvReadTimer = Mock()
+        canlib.canSetBusParamsC200 = Mock()
         canlib.canSetBusParams = Mock()
         canlib.canSetBusParamsFd = Mock()
         canlib.canBusOn = Mock()
@@ -37,7 +38,7 @@ class KvaserTest(unittest.TestCase):
 
         self.msg = {}
         self.msg_in_cue = None
-        self.bus = can.Bus(channel=0, bustype="kvaser")
+        self.bus = can.Bus(channel=0, interface="kvaser")
 
     def tearDown(self):
         if self.bus:
@@ -46,8 +47,29 @@ class KvaserTest(unittest.TestCase):
 
     def test_bus_creation(self):
         self.assertIsInstance(self.bus, canlib.KvaserBus)
+        self.assertEqual(self.bus.protocol, can.CanProtocol.CAN_20)
         self.assertTrue(canlib.canOpenChannel.called)
         self.assertTrue(canlib.canBusOn.called)
+
+    def test_bus_creation_illegal_channel_name(self):
+        # Test if the bus constructor is able to deal with non-ASCII characters
+        def canGetChannelDataMock(
+            channel: ctypes.c_int,
+            param: ctypes.c_int,
+            buf: ctypes.c_void_p,
+            bufsize: ctypes.c_size_t,
+        ):
+            if param == constants.canCHANNELDATA_DEVDESCR_ASCII:
+                buf_char_ptr = ctypes.cast(buf, ctypes.POINTER(ctypes.c_char))
+                for i, char in enumerate(b"hello\x7a\xcb"):
+                    buf_char_ptr[i] = char
+
+        canlib.canGetChannelData = canGetChannelDataMock
+        bus = can.Bus(channel=0, interface="kvaser")
+
+        self.assertTrue(bus.channel_info.startswith("hello"))
+
+        bus.shutdown()
 
     def test_bus_shutdown(self):
         self.bus.shutdown()
@@ -149,7 +171,8 @@ class KvaserTest(unittest.TestCase):
     def test_canfd_default_data_bitrate(self):
         canlib.canSetBusParams.reset_mock()
         canlib.canSetBusParamsFd.reset_mock()
-        can.Bus(channel=0, bustype="kvaser", fd=True)
+        bus = can.Bus(channel=0, interface="kvaser", fd=True)
+        self.assertEqual(bus.protocol, can.CanProtocol.CAN_FD)
         canlib.canSetBusParams.assert_called_once_with(
             0, constants.canFD_BITRATE_500K_80P, 0, 0, 0, 0, 0
         )
@@ -157,11 +180,43 @@ class KvaserTest(unittest.TestCase):
             0, constants.canFD_BITRATE_500K_80P, 0, 0, 0
         )
 
+    def test_can_timing(self):
+        canlib.canSetBusParams.reset_mock()
+        canlib.canSetBusParamsFd.reset_mock()
+        timing = can.BitTiming.from_bitrate_and_segments(
+            f_clock=16_000_000,
+            bitrate=125_000,
+            tseg1=13,
+            tseg2=2,
+            sjw=1,
+        )
+        can.Bus(channel=0, interface="kvaser", timing=timing)
+        canlib.canSetBusParamsC200.assert_called_once_with(0, timing.btr0, timing.btr1)
+
+    def test_canfd_timing(self):
+        canlib.canSetBusParams.reset_mock()
+        canlib.canSetBusParamsFd.reset_mock()
+        timing = can.BitTimingFd.from_bitrate_and_segments(
+            f_clock=80_000_000,
+            nom_bitrate=500_000,
+            nom_tseg1=68,
+            nom_tseg2=11,
+            nom_sjw=10,
+            data_bitrate=2_000_000,
+            data_tseg1=10,
+            data_tseg2=9,
+            data_sjw=8,
+        )
+        can.Bus(channel=0, interface="kvaser", timing=timing)
+        canlib.canSetBusParams.assert_called_once_with(0, 500_000, 68, 11, 10, 1, 0)
+        canlib.canSetBusParamsFd.assert_called_once_with(0, 2_000_000, 10, 9, 8)
+
     def test_canfd_nondefault_data_bitrate(self):
         canlib.canSetBusParams.reset_mock()
         canlib.canSetBusParamsFd.reset_mock()
         data_bitrate = 2000000
-        can.Bus(channel=0, bustype="kvaser", fd=True, data_bitrate=data_bitrate)
+        bus = can.Bus(channel=0, interface="kvaser", fd=True, data_bitrate=data_bitrate)
+        self.assertEqual(bus.protocol, can.CanProtocol.CAN_FD)
         bitrate_constant = canlib.BITRATE_FD[data_bitrate]
         canlib.canSetBusParams.assert_called_once_with(
             0, constants.canFD_BITRATE_500K_80P, 0, 0, 0, 0, 0
@@ -172,7 +227,7 @@ class KvaserTest(unittest.TestCase):
         canlib.canSetBusParams.reset_mock()
         canlib.canSetBusParamsFd.reset_mock()
         data_bitrate = 123456
-        can.Bus(channel=0, bustype="kvaser", fd=True, data_bitrate=data_bitrate)
+        can.Bus(channel=0, interface="kvaser", fd=True, data_bitrate=data_bitrate)
         canlib.canSetBusParams.assert_called_once_with(
             0, constants.canFD_BITRATE_500K_80P, 0, 0, 0, 0, 0
         )

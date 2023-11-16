@@ -1,9 +1,9 @@
 Scripts
 =======
 
-The following modules are callable from python-can.
+The following modules are callable from ``python-can``.
 
-They can be called for example by ``python -m can.logger`` or ``can_logger.py`` (if installed using pip).
+They can be called for example by ``python -m can.logger`` or ``can_logger`` (if installed using pip).
 
 can.logger
 ----------
@@ -53,3 +53,8 @@ The full usage page can be seen below:
 
 .. command-output:: python -m can.viewer -h
 
+
+can.logconvert
+--------------
+
+.. command-output:: python -m can.logconvert -h
